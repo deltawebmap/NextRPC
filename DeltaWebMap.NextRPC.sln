@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29728.190
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeltaWebMap.NextRPC", "DeltaWebMap.NextRPC\DeltaWebMap.NextRPC.csproj", "{9368E6E5-0778-4AB8-8B96-B84E3EC6D95C}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "LibDeltaSystem", "..\LibDeltaSystem\LibDeltaSystem\LibDeltaSystem.csproj", "{D2D1C35C-56A9-4004-9646-CAF9001B097C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9368E6E5-0778-4AB8-8B96-B84E3EC6D95C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9368E6E5-0778-4AB8-8B96-B84E3EC6D95C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9368E6E5-0778-4AB8-8B96-B84E3EC6D95C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9368E6E5-0778-4AB8-8B96-B84E3EC6D95C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D2D1C35C-56A9-4004-9646-CAF9001B097C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D2D1C35C-56A9-4004-9646-CAF9001B097C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D2D1C35C-56A9-4004-9646-CAF9001B097C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D2D1C35C-56A9-4004-9646-CAF9001B097C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {5B01B7A2-FE0A-4AF4-9293-A1EF492A08C0}
+	EndGlobalSection
+EndGlobal
