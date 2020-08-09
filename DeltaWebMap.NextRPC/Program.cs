@@ -22,7 +22,7 @@ namespace DeltaWebMap.NextRPC
         private static Thread processingThread;
 
         public const byte APP_VERSION_MAJOR = 0;
-        public const byte APP_VERSION_MINOR = 5;
+        public const byte APP_VERSION_MINOR = 6;
 
         static void Main(string[] args)
         {

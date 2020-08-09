@@ -126,7 +126,14 @@ namespace DeltaWebMap.NextRPC
             //Authenticate this token
             token = await conn.GetTokenByTokenAsync(tokenString);
             if (token == null)
+            {
+                //Failed!
+                await SendOutgoingCommand(RPCOutgoing.COMMAND_NAME_LOGIN, new RPCLoginCompletedPayload
+                {
+                    success = false
+                });
                 return;
+            }
 
             //Get user
             user = await conn.GetUserByIdAsync(token.user_id);
