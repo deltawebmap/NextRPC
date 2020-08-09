@@ -1,4 +1,5 @@
 ﻿using DeltaWebMap.NextRPC.Entities;
+using DeltaWebMap.NextRPC.Entities.Comms;
 using LibDeltaSystem;
 using LibDeltaSystem.WebFramework;
 using LibDeltaSystem.WebFramework.WebSockets.Entities;
@@ -21,7 +22,7 @@ namespace DeltaWebMap.NextRPC
         private static Thread processingThread;
 
         public const byte APP_VERSION_MAJOR = 0;
-        public const byte APP_VERSION_MINOR = 4;
+        public const byte APP_VERSION_MINOR = 5;
 
         static void Main(string[] args)
         {
@@ -68,7 +69,11 @@ namespace DeltaWebMap.NextRPC
                     return;
 
                 //Get the external message to send
-                var msg = m.GetExternalMessage();
+                var msg = new RPCOutgoing
+                {
+                    command = RPCOutgoing.COMMAND_NAME_RPC,
+                    payload = m.GetExternalMessage()
+                };
                 byte[] msgBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(msg));
 
                 //Log

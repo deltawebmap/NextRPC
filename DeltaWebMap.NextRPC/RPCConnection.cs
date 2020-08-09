@@ -1,4 +1,5 @@
 ﻿using DeltaWebMap.NextRPC.Entities;
+using DeltaWebMap.NextRPC.Entities.Comms;
 using DeltaWebMap.NextRPC.Queries;
 using LibDeltaSystem;
 using LibDeltaSystem.Db.System;
@@ -135,8 +136,50 @@ namespace DeltaWebMap.NextRPC
             //Log
             conn.Log("RPCConnection-HandleCommandAuth", $"[SESSION {_request_id}] Logged in user {user._id.ToString()}", DeltaLogLevel.Debug);
 
+            //Send success message
+            await SendOutgoingCommand(RPCOutgoing.COMMAND_NAME_LOGIN, new RPCLoginCompletedPayload
+            {
+                success = true,
+                user = new RPCLoginCompletedPayload.RPCLoginCompletedPayload_User
+                {
+                    name = user.screen_name,
+                    id = user.id,
+                    icon = user.profile_image_url,
+                    steam_id = user.steam_id
+                }
+            });
+
             //Refresh
             await RefreshGroups();
+        }
+
+        private async Task SendOutgoingCommand(string command, object payload)
+        {
+            //Create payload
+            var p = new RPCOutgoing
+            {
+                command = command,
+                payload = payload
+            };
+
+            //Send
+            await SendData(JsonConvert.SerializeObject(p));
+        }
+
+        public override async Task OnGroupsUpdated()
+        {
+            //Create list of groups
+            List<string> names = new List<string>();
+            foreach(var n in groups)
+            {
+                names.Add(n.identifier.GetType().Name);
+            }
+
+            //Send
+            await SendOutgoingCommand(RPCOutgoing.COMMAND_NAME_GROUPS, new RPCGroupChangedPayload
+            {
+                groups = names
+            });
         }
     }
 }
