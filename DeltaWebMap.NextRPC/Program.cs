@@ -21,7 +21,7 @@ namespace DeltaWebMap.NextRPC
         private static Thread processingThread;
 
         public const byte APP_VERSION_MAJOR = 0;
-        public const byte APP_VERSION_MINOR = 3;
+        public const byte APP_VERSION_MINOR = 4;
 
         static void Main(string[] args)
         {
@@ -44,7 +44,7 @@ namespace DeltaWebMap.NextRPC
             processingThread.Start();
 
             //Connect to database
-            conn = DeltaConnection.InitDeltaManagedApp(null, APP_VERSION_MAJOR, APP_VERSION_MINOR, new RpcNetwork());
+            conn = DeltaConnection.InitDeltaManagedApp(args, APP_VERSION_MAJOR, APP_VERSION_MINOR, new RpcNetwork());
 
             //Launch server
             MainAsync().GetAwaiter().GetResult();
