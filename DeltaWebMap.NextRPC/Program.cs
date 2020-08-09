@@ -21,7 +21,7 @@ namespace DeltaWebMap.NextRPC
         private static Thread processingThread;
 
         public const byte APP_VERSION_MAJOR = 0;
-        public const byte APP_VERSION_MINOR = 2;
+        public const byte APP_VERSION_MINOR = 3;
 
         static void Main(string[] args)
         {
@@ -53,7 +53,7 @@ namespace DeltaWebMap.NextRPC
         public static async Task MainAsync()
         {
             //Start server
-            DeltaWebServer server = new DeltaWebServer(conn, 9991);
+            DeltaWebServer server = new DeltaWebServer(conn, conn.GetUserPort(0));
             server.AddService(new RPCConnectionDefinition());
             await server.RunAsync();
         }
