@@ -153,11 +153,18 @@ namespace DeltaWebMap.NextRPC
             JObject msg = new JObject();
             msg["user_id"] = user.id;
             msg["server_count"] = currentServers.Count;
-            await SendMessage(OUT_OPCODE_LOGINSTATE, msg);
+            await SendMessage(OUT_OPCODE_GROUPREFRESH, msg);
         }
 
         private async Task OnLoginRequest(JObject data)
         {
+            //Check if already logged in
+            if (user != null)
+            {
+                await SendLoginStatus(false, "Already logged in. Disconnect and reconnect first.");
+                return;
+            }
+
             //Get token
             token = await conn.GetTokenByTokenAsync((string)data["access_token"]);
             if(token == null)
