@@ -19,7 +19,7 @@ namespace DeltaWebMap.NextRPC
     class Program
     {
         public static DeltaConnection conn;
-        public static List<RPCConnection> connections;
+        public static List<RPCConnection> connections = new List<RPCConnection>();
 
         public const byte APP_VERSION_MAJOR = 1;
         public const byte APP_VERSION_MINOR = 2;

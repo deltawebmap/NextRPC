@@ -45,6 +45,16 @@ namespace DeltaWebMap.NextRPC
             }
             sock = await e.WebSockets.AcceptWebSocketAsync();
 
+            //Send connection info
+            JObject connectionInfo = new JObject();
+            connectionInfo["version_minor"] = Program.APP_VERSION_MINOR;
+            connectionInfo["version_major"] = Program.APP_VERSION_MAJOR;
+            connectionInfo["server_instance_id"] = conn.instanceId;
+            connectionInfo["server_server_id"] = conn.serverId;
+            connectionInfo["sock_instance_id"] = _request_id;
+            connectionInfo["buffer_size"] = incomingBuffer.Length;
+            await SendMessage(OUT_OPCODE_INFO, connectionInfo);
+
             //Add to list
             lock (Program.connections)
                 Program.connections.Add(this);
@@ -183,6 +193,7 @@ namespace DeltaWebMap.NextRPC
         public const string OUT_OPCODE_RPCMSG = "RPC_MESSAGE";
         public const string OUT_OPCODE_GROUPREFRESH = "GROUP_REFRESH";
         public const string OUT_OPCODE_LOGINSTATE = "LOGIN_STATUS";
+        public const string OUT_OPCODE_INFO = "CONNECTION_INFO";
 
         public async Task SendMessage(string opcode, JObject payload)
         {
