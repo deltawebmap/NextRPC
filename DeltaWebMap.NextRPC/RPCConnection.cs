@@ -1,192 +1,202 @@
-﻿using DeltaWebMap.NextRPC.Entities;
-using DeltaWebMap.NextRPC.Entities.Comms;
-using DeltaWebMap.NextRPC.Queries;
-using LibDeltaSystem;
+﻿using LibDeltaSystem;
 using LibDeltaSystem.Db.System;
-using LibDeltaSystem.WebFramework.WebSockets.Groups;
+using LibDeltaSystem.WebFramework;
 using Microsoft.AspNetCore.Http;
 using MongoDB.Bson;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Net.WebSockets;
 using System.Text;
+using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace DeltaWebMap.NextRPC
 {
-    public class RPCConnection : GroupWebSocketService
+    public class RPCConnection : DeltaWebService
     {
-        /// <summary>
-        /// The user authenticated
-        /// </summary>
-        public DbUser user;
-
-        /// <summary>
-        /// The token used to issue this request
-        /// </summary>
-        public DbToken token;
-
         public RPCConnection(DeltaConnection conn, HttpContext e) : base(conn, e)
         {
+            incomingBuffer = new byte[1024];
+            channel = Channel.CreateUnbounded<ISockCommand>();
+            currentServers = new ConcurrentDictionary<ObjectId, int?>();
         }
 
-        public override async Task<List<WebSocketGroupQuery>> AuthenticateGroupsQuery()
+        private WebSocket sock;
+        private byte[] incomingBuffer;
+        private Channel<ISockCommand> channel;
+
+        private DbUser user;
+        private DbToken token;
+
+        public ObjectId? currentUserId;
+        public ConcurrentDictionary<ObjectId, int?> currentServers; //A null key indicates that this user has admin access. If it is non-null, that is their tribe ID
+
+        public override async Task OnRequest()
         {
-            //If we're not logged in, return no groups
-            if(user == null)
-                return new List<WebSocketGroupQuery>();
-
-            //Create queries
-            var queries = new List<WebSocketGroupQuery>();
-
-            //Add user query
-            queries.Add(new RPCGroupQueryUser
+            //Accept WebSocket
+            if (!e.WebSockets.IsWebSocketRequest)
             {
-                user_id = user._id
-            });
-
-            //Add servers we're in
-            var playerServers = await user.GetGameServersAsync(conn);
-            var adminServers = await user.GetAdminedServersAsync(conn);
-            List<ObjectId> serverIds = new List<ObjectId>();
-            foreach (var s in playerServers)
-            {
-                queries.Add(new RPCGroupQueryServer
-                {
-                    server_id = s.Item1._id
-                });
-                queries.Add(new RPCGroupQueryServerTribe
-                {
-                    server_id = s.Item1._id,
-                    tribe_id = s.Item2.tribe_id,
-                    any_tribe_id = s.Item1.CheckIsUserAdmin(user)
-                });
-                serverIds.Add(s.Item1._id);
+                await WriteString("Expected WebSocket request to this endpoint.", "text/plain", 400);
+                return;
             }
-            foreach (var s in adminServers)
+            sock = await e.WebSockets.AcceptWebSocketAsync();
+
+            //Add to list
+            lock (Program.connections)
+                Program.connections.Add(this);
+
+            //Begin get
+            CancellationToken cancellationToken = new CancellationToken();
+            Task<WebSocketReceiveResult> receiveTask = sock.ReceiveAsync(new ArraySegment<byte>(incomingBuffer, 0, incomingBuffer.Length), cancellationToken);
+            Task<ISockCommand> commandsTask = channel.Reader.ReadAsync(cancellationToken).AsTask();
+
+            //Loop
+            string incomingTextBuffer = "";
+            while (true)
             {
-                queries.Add(new RPCGroupQueryServerAdmin
+                //Wait for something to complete
+                await Task.WhenAny(receiveTask, commandsTask);
+
+                //Handle receiveTask
+                if (receiveTask.IsCompleted)
                 {
-                    server_id = s._id
-                });
-                if (serverIds.Contains(s._id))
-                    continue;
-                queries.Add(new RPCGroupQueryServer
+                    WebSocketReceiveResult result = receiveTask.Result;
+                    if (result.CloseStatus.HasValue)
+                        break;
+                    if (result.MessageType != WebSocketMessageType.Text)
+                        break;
+
+                    //Write to buffer
+                    incomingTextBuffer += Encoding.UTF8.GetString(incomingBuffer, 0, result.Count);
+
+                    //Check if this is the end
+                    if (result.EndOfMessage)
+                    {
+                        await OnSockCommandReceive(incomingTextBuffer);
+                        incomingTextBuffer = "";
+                    }
+
+                    //Get next
+                    receiveTask = sock.ReceiveAsync(new ArraySegment<byte>(incomingBuffer, 0, incomingBuffer.Length), cancellationToken);
+                }
+
+                //Handle commandsTask
+                if (commandsTask.IsCompleted)
                 {
-                    server_id = s._id
-                });
+                    await OnInternalCommandReceive(commandsTask.Result);
+                    commandsTask = channel.Reader.ReadAsync(cancellationToken).AsTask();
+                }
             }
 
-            return queries;
+            //Remove from list
+            lock (Program.connections)
+                Program.connections.Remove(this);
         }
 
-        public override WebSocketGroupHolder GetGroupHolder()
+        public void EnqueueMessage(ISockCommand cmd)
         {
-            return Program.holder;
+            channel.Writer.WriteAsync(cmd);
         }
 
-        public override async Task<bool> OnPreRequest()
-        {
-            return true;
-        }
-
-        public override Task OnReceiveBinary(byte[] data, int length)
-        {
-            throw new Exception("Binary data is not supported.");
-        }
-
-        public override async Task OnReceiveText(string data)
+        private async Task OnSockCommandReceive(string cmd)
         {
             //Decode
-            RPCReceivePayload request = JsonConvert.DeserializeObject<RPCReceivePayload>(data);
+            JObject data = JsonConvert.DeserializeObject<JObject>(cmd);
+            string opcode = (string)data["opcode"];
+            JObject payload = (JObject)data["payload"];
 
-            //Handle commands
-            switch(request.command)
+            //Handle
+            switch(opcode)
             {
-                case "LOGIN": await HandleCommandAuth(request.payload); break;
+                case IN_OPCODE_LOGIN: await OnLoginRequest(payload); break;
             }
         }
 
-        public override async Task<bool> SetArgs(Dictionary<string, string> args)
+        private async Task OnInternalCommandReceive(ISockCommand cmd)
         {
-            return true;
+            await cmd.HandleCommand(this);
         }
 
-        private async Task HandleCommandAuth(Dictionary<string, string> payload)
+        public async Task RefreshGroups()
         {
-            //Get the acccess token
-            if (!payload.ContainsKey("ACCESS_TOKEN"))
-                return;
-            string tokenString = payload["ACCESS_TOKEN"];
+            //Set user
+            currentUserId = user._id;
 
-            //Make sure we're not already authenticated
-            if (user != null)
-                return;
+            //Clear current servers
+            currentServers.Clear();
 
-            //Authenticate this token
-            token = await conn.GetTokenByTokenAsync(tokenString);
-            if (token == null)
+            //Look up the servers the user has a player profile in and add them
+            var playerServers = await user.GetGameServersAsync(conn);
+            foreach (var p in playerServers)
+                currentServers.TryAdd(p.Item1._id, p.Item2.tribe_id);
+
+            //Look up the servers the user is admin in and add them
+            var adminServers = await user.GetAdminedServersAsync(conn);
+            foreach (var p in playerServers)
+                currentServers.AddOrUpdate(p.Item1._id, (key) => null, (key, oldValue) => null);
+
+            //Tell the user that their groups have refreshed
+            JObject msg = new JObject();
+            msg["user_id"] = user.id;
+            msg["server_count"] = currentServers.Count;
+            await SendMessage(OUT_OPCODE_LOGINSTATE, msg);
+        }
+
+        private async Task OnLoginRequest(JObject data)
+        {
+            //Get token
+            token = await conn.GetTokenByTokenAsync((string)data["access_token"]);
+            if(token == null)
             {
-                //Failed!
-                await SendOutgoingCommand(RPCOutgoing.COMMAND_NAME_LOGIN, new RPCLoginCompletedPayload
-                {
-                    success = false
-                });
+                await SendLoginStatus(false, "Token Invalid");
                 return;
             }
 
             //Get user
             user = await conn.GetUserByIdAsync(token.user_id);
             if (user == null)
-                return;
-
-            //Log
-            conn.Log("RPCConnection-HandleCommandAuth", $"[SESSION {_request_id}] Logged in user {user._id.ToString()}", DeltaLogLevel.Debug);
-
-            //Send success message
-            await SendOutgoingCommand(RPCOutgoing.COMMAND_NAME_LOGIN, new RPCLoginCompletedPayload
             {
-                success = true,
-                user = new RPCLoginCompletedPayload.RPCLoginCompletedPayload_User
-                {
-                    name = user.screen_name,
-                    id = user.id,
-                    icon = user.profile_image_url,
-                    steam_id = user.steam_id
-                }
-            });
+                await SendLoginStatus(false, "User Invalid (bad!)");
+                return;
+            }
 
-            //Refresh
+            //Issue OK
+            await SendLoginStatus(true, "OK; Logged in user " + user.id);
+
+            //Update groups
             await RefreshGroups();
         }
 
-        private async Task SendOutgoingCommand(string command, object payload)
+        private async Task SendLoginStatus(bool success, string message)
         {
-            //Create payload
-            var p = new RPCOutgoing
-            {
-                command = command,
-                payload = payload
-            };
-
-            //Send
-            await SendData(JsonConvert.SerializeObject(p));
+            JObject msg = new JObject();
+            msg["success"] = success;
+            msg["message"] = message;
+            await SendMessage(OUT_OPCODE_LOGINSTATE, msg);
         }
 
-        public override async Task OnGroupsUpdated()
+        public const string IN_OPCODE_LOGIN = "LOGIN";
+        public const string OUT_OPCODE_RPCMSG = "RPC_MESSAGE";
+        public const string OUT_OPCODE_GROUPREFRESH = "GROUP_REFRESH";
+        public const string OUT_OPCODE_LOGINSTATE = "LOGIN_STATUS";
+
+        public async Task SendMessage(string opcode, JObject payload)
         {
-            //Create list of groups
-            List<string> names = new List<string>();
-            foreach(var n in groups)
-            {
-                names.Add(n.identifier.GetType().Name);
-            }
+            //Create
+            JObject p = new JObject();
+            p["opcode"] = opcode;
+            p["payload"] = payload;
+
+            //Serialize
+            string data = JsonConvert.SerializeObject(p);
+            byte[] dataPayload = Encoding.UTF8.GetBytes(data);
 
             //Send
-            await SendOutgoingCommand(RPCOutgoing.COMMAND_NAME_GROUPS, new RPCGroupChangedPayload
-            {
-                groups = names
-            });
+            await sock.SendAsync(new ArraySegment<byte>(dataPayload, 0, dataPayload.Length), WebSocketMessageType.Text, true, CancellationToken.None);
         }
     }
 }

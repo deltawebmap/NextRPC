@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "DeltaWebMap.NextRPC": {
+      "commandName": "Project",
+      "commandLineArgs": "C:\\Users\\Roman\\Documents\\DeltaWebMap\\database_config.json 2002"
+    }
+  }
+}
