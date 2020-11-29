@@ -6,6 +6,7 @@ using LibDeltaSystem.CoreNet.IO;
 using LibDeltaSystem.RPC;
 using LibDeltaSystem.Tools;
 using LibDeltaSystem.WebFramework;
+using LibDeltaSystem.WebFramework.WebSockets.OpcodeSock;
 using MongoDB.Bson;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -22,7 +23,7 @@ namespace DeltaWebMap.NextRPC
         public static List<RPCConnection> connections = new List<RPCConnection>();
 
         public const byte APP_VERSION_MAJOR = 1;
-        public const byte APP_VERSION_MINOR = 2;
+        public const byte APP_VERSION_MINOR = 3;
 
         static void Main(string[] args)
         {

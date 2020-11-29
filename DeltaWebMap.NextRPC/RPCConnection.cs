@@ -1,6 +1,7 @@
 ﻿using LibDeltaSystem;
 using LibDeltaSystem.Db.System;
 using LibDeltaSystem.WebFramework;
+using LibDeltaSystem.WebFramework.WebSockets.OpcodeSock;
 using Microsoft.AspNetCore.Http;
 using MongoDB.Bson;
 using Newtonsoft.Json;
@@ -16,119 +17,31 @@ using System.Threading.Tasks;
 
 namespace DeltaWebMap.NextRPC
 {
-    public class RPCConnection : DeltaWebService
+    public class RPCConnection : DeltaOpcodeUserWebSocketService
     {
         public RPCConnection(DeltaConnection conn, HttpContext e) : base(conn, e)
         {
-            incomingBuffer = new byte[1024];
-            channel = Channel.CreateUnbounded<ISockCommand>();
             currentServers = new ConcurrentDictionary<ObjectId, int?>();
         }
-
-        private WebSocket sock;
-        private byte[] incomingBuffer;
-        private Channel<ISockCommand> channel;
-
-        private DbUser user;
-        private DbToken token;
 
         public ObjectId? currentUserId;
         public ConcurrentDictionary<ObjectId, int?> currentServers; //A null key indicates that this user has admin access. If it is non-null, that is their tribe ID
 
-        public override async Task OnRequest()
+        public override async Task OnSockOpened()
         {
-            //Accept WebSocket
-            if (!e.WebSockets.IsWebSocketRequest)
-            {
-                await WriteString("Expected WebSocket request to this endpoint.", "text/plain", 400);
-                return;
-            }
-            sock = await e.WebSockets.AcceptWebSocketAsync();
-
-            //Send connection info
-            JObject connectionInfo = new JObject();
-            connectionInfo["version_minor"] = Program.APP_VERSION_MINOR;
-            connectionInfo["version_major"] = Program.APP_VERSION_MAJOR;
-            connectionInfo["server_instance_id"] = conn.instanceId;
-            connectionInfo["server_server_id"] = conn.serverId;
-            connectionInfo["sock_instance_id"] = _request_id;
-            connectionInfo["buffer_size"] = incomingBuffer.Length;
-            await SendMessage(OUT_OPCODE_INFO, connectionInfo);
-
-            //Add to list
             lock (Program.connections)
                 Program.connections.Add(this);
+        }
 
-            //Begin get
-            CancellationToken cancellationToken = new CancellationToken();
-            Task<WebSocketReceiveResult> receiveTask = sock.ReceiveAsync(new ArraySegment<byte>(incomingBuffer, 0, incomingBuffer.Length), cancellationToken);
-            Task<ISockCommand> commandsTask = channel.Reader.ReadAsync(cancellationToken).AsTask();
-
-            //Loop
-            string incomingTextBuffer = "";
-            while (true)
-            {
-                //Wait for something to complete
-                await Task.WhenAny(receiveTask, commandsTask);
-
-                //Handle receiveTask
-                if (receiveTask.IsCompleted)
-                {
-                    WebSocketReceiveResult result = receiveTask.Result;
-                    if (result.CloseStatus.HasValue)
-                        break;
-                    if (result.MessageType != WebSocketMessageType.Text)
-                        break;
-
-                    //Write to buffer
-                    incomingTextBuffer += Encoding.UTF8.GetString(incomingBuffer, 0, result.Count);
-
-                    //Check if this is the end
-                    if (result.EndOfMessage)
-                    {
-                        await OnSockCommandReceive(incomingTextBuffer);
-                        incomingTextBuffer = "";
-                    }
-
-                    //Get next
-                    receiveTask = sock.ReceiveAsync(new ArraySegment<byte>(incomingBuffer, 0, incomingBuffer.Length), cancellationToken);
-                }
-
-                //Handle commandsTask
-                if (commandsTask.IsCompleted)
-                {
-                    await OnInternalCommandReceive(commandsTask.Result);
-                    commandsTask = channel.Reader.ReadAsync(cancellationToken).AsTask();
-                }
-            }
-
-            //Remove from list
+        public override async Task OnSockClosed()
+        {
             lock (Program.connections)
                 Program.connections.Remove(this);
         }
 
-        public void EnqueueMessage(ISockCommand cmd)
+        public override async Task OnUserLoginSuccess()
         {
-            channel.Writer.WriteAsync(cmd);
-        }
-
-        private async Task OnSockCommandReceive(string cmd)
-        {
-            //Decode
-            JObject data = JsonConvert.DeserializeObject<JObject>(cmd);
-            string opcode = (string)data["opcode"];
-            JObject payload = (JObject)data["payload"];
-
-            //Handle
-            switch(opcode)
-            {
-                case IN_OPCODE_LOGIN: await OnLoginRequest(payload); break;
-            }
-        }
-
-        private async Task OnInternalCommandReceive(ISockCommand cmd)
-        {
-            await cmd.HandleCommand(this);
+            await RefreshGroups();
         }
 
         public async Task RefreshGroups()
@@ -156,65 +69,7 @@ namespace DeltaWebMap.NextRPC
             await SendMessage(OUT_OPCODE_GROUPREFRESH, msg);
         }
 
-        private async Task OnLoginRequest(JObject data)
-        {
-            //Check if already logged in
-            if (user != null)
-            {
-                await SendLoginStatus(false, "Already logged in. Disconnect and reconnect first.");
-                return;
-            }
-
-            //Get token
-            token = await conn.GetTokenByTokenAsync((string)data["access_token"]);
-            if(token == null)
-            {
-                await SendLoginStatus(false, "Token Invalid");
-                return;
-            }
-
-            //Get user
-            user = await conn.GetUserByIdAsync(token.user_id);
-            if (user == null)
-            {
-                await SendLoginStatus(false, "User Invalid (bad!)");
-                return;
-            }
-
-            //Issue OK
-            await SendLoginStatus(true, "OK; Logged in user " + user.id);
-
-            //Update groups
-            await RefreshGroups();
-        }
-
-        private async Task SendLoginStatus(bool success, string message)
-        {
-            JObject msg = new JObject();
-            msg["success"] = success;
-            msg["message"] = message;
-            await SendMessage(OUT_OPCODE_LOGINSTATE, msg);
-        }
-
-        public const string IN_OPCODE_LOGIN = "LOGIN";
         public const string OUT_OPCODE_RPCMSG = "RPC_MESSAGE";
         public const string OUT_OPCODE_GROUPREFRESH = "GROUP_REFRESH";
-        public const string OUT_OPCODE_LOGINSTATE = "LOGIN_STATUS";
-        public const string OUT_OPCODE_INFO = "CONNECTION_INFO";
-
-        public async Task SendMessage(string opcode, JObject payload)
-        {
-            //Create
-            JObject p = new JObject();
-            p["opcode"] = opcode;
-            p["payload"] = payload;
-
-            //Serialize
-            string data = JsonConvert.SerializeObject(p);
-            byte[] dataPayload = Encoding.UTF8.GetBytes(data);
-
-            //Send
-            await sock.SendAsync(new ArraySegment<byte>(dataPayload, 0, dataPayload.Length), WebSocketMessageType.Text, true, CancellationToken.None);
-        }
     }
 }

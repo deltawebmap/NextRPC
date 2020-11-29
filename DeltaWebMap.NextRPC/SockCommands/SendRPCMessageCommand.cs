@@ -1,4 +1,5 @@
-﻿using MongoDB.Bson;
+﻿using LibDeltaSystem.WebFramework.WebSockets.OpcodeSock;
+using MongoDB.Bson;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -19,9 +20,11 @@ namespace DeltaWebMap.NextRPC.SockCommands
             this.target_server = target_server;
             this.payload = payload;
         }
-        
-        public async Task HandleCommand(RPCConnection conn)
+
+        public async Task HandleCommand(DeltaOpcodeWebSocketService baseConn)
         {
+            RPCConnection conn = (RPCConnection)baseConn;
+
             //Create command
             JObject cmd = new JObject();
             cmd["opcode"] = opcode;

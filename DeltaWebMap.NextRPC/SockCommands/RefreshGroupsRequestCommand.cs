@@ -1,4 +1,5 @@
-﻿using System;
+﻿using LibDeltaSystem.WebFramework.WebSockets.OpcodeSock;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
@@ -7,9 +8,9 @@ namespace DeltaWebMap.NextRPC.SockCommands
 {
     public class RefreshGroupsRequestCommand : ISockCommand
     {
-        public async Task HandleCommand(RPCConnection conn)
+        public async Task HandleCommand(DeltaOpcodeWebSocketService conn)
         {
-            await conn.RefreshGroups();
+            await ((RPCConnection)conn).RefreshGroups();
         }
     }
 }
